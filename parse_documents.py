@@ -64,6 +64,7 @@ def _():
     import torch
     return (
         AutoProcessor,
+        AutoTokenizer,
         Qwen2_5_VLForConditionalGeneration,
         process_vision_info,
         torch,
@@ -467,6 +468,169 @@ def _(test_image):
             ]
         }
     ], test_image)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""### OCR""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""nanonets/Nanonets-OCR-s""")
+    return
+
+
+@app.cell
+def _():
+    from transformers import AutoModelForImageTextToText
+    return (AutoModelForImageTextToText,)
+
+
+@app.cell
+def _(AutoModelForImageTextToText, AutoProcessor, AutoTokenizer):
+    model_path = "nanonets/Nanonets-OCR-s"
+    model = AutoModelForImageTextToText.from_pretrained(
+        model_path, 
+        dtype="auto",
+        device_map="auto",
+    )
+    model.eval()
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    processor = AutoProcessor.from_pretrained(model_path)
+    return model, processor
+
+
+@app.cell
+def _(BytesIO, Image, base64, model, processor, system_prompt):
+    def infer_ocr(image: Image):
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        buffer.seek(0)
+        base64_image = base64.b64encode(buffer.read()).decode('utf-8')
+        base64_image = f"data:image/png;base64,{base64_image}"
+
+        messages = [
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "image": base64_image,
+                    },
+                    {"type": "text", "text": "Fill in the values from this image."},
+                ],
+            }
+        ]
+
+        text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        inputs = processor(text=[text], images=[image], padding=True, return_tensors="pt")
+        inputs = inputs.to(model.device)
+
+        output_ids = model.generate(**inputs, max_new_tokens=2048, do_sample=False)
+        generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, output_ids)]
+
+        output = processor.batch_decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+        return output
+    return (infer_ocr,)
+
+
+@app.cell
+def _(infer_ocr, test_image):
+    infer_ocr(test_image)
+    return
+
+
+@app.cell(hide_code=True)
+def _(test_image):
+    ({
+        "metadata": {
+            "Commune": "Crans-Montana",
+            "Parcel": "3945",
+            "Object": "Construction d'une villa - Chermignon"
+        },
+        "checkboxes": [
+            {"label": "Nouveau bâtiment", "checked": True},
+            {"label": "Transformation", "checked": True},
+            {"label": "Projet d'intérêt cantonal", "checked": False}
+        ],
+        "tables": [
+            {
+                "title": "Justificatifs",
+                "rows": [
+                    {"label": "Justificatif \"Besoins de chaleur - preuve calculée\"", "values": ["oui", "EN-VS-101a", "-"]},
+                    {"label": "Justificatif \"Besoins de chaleur - bâtiments empilés ENteb\"", "values": ["-", "-", "-"]}
+                ]
+            }
+        ]
+    },test_image)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""numind/NuMarkdown-8B-Thinking""")
+    return
+
+
+@app.cell
+def _(AutoProcessor, Qwen2_5_VLForConditionalGeneration, torch):
+    model_id = "numind/NuMarkdown-8B-reasoning"       
+
+    processor = AutoProcessor.from_pretrained(
+        model_id,
+        trust_remote_code=True,
+        min_pixels=100*28*28, max_pixels=5000*28*28   
+    )
+
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        model_id,
+        dtype=torch.bfloat16,
+        device_map="auto",
+        trust_remote_code=True,
+    )
+    return model, processor
+
+
+@app.cell
+def _(Image, model, processor, torch):
+    def infer_numd(image: Image):
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "image"},
+            ],
+        }]
+        prompt = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        model_input = processor(text=prompt, images=[image], return_tensors="pt").to(model.device)
+
+        with torch.no_grad():
+            model_output = model.generate(**model_input, temperature = 0.7, max_new_tokens=5000)
+
+        result = processor.decode(model_output[0])
+        reasoning = result.split("<think>")[1].split("</think>")[0]
+        answer  = result.split("<answer>")[1].split("</answer>")[0]
+
+        return answer
+    return (infer_numd,)
+
+
+@app.cell
+def _(test_image):
+    test_image
+    return
+
+
+@app.cell
+def _(infer_numd, test_image):
+    infer_numd(test_image)
     return
 
 
