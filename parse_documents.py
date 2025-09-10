@@ -18,9 +18,8 @@ def _(mo):
 
 @app.cell
 def _():
-    import os
     from PIL import Image
-    return Image, os
+    return (Image,)
 
 
 @app.cell
@@ -111,7 +110,7 @@ def _(BaseModel, Field):
     class PageData(BaseModel):
         metadata: dict[str, str] = Field(
             default_factory=dict,
-            description="General key-value metadata from the page header (e.g., Commune, Parcel number, Object, etc.)"
+            description="General key-value metadata from the page header (e.g., Title, Object, etc.)"
         )
         checkboxes: list[Checkbox] = Field(
             default_factory=list,
@@ -130,9 +129,8 @@ def _(Checkbox, PageData, Table, TableRow):
         page.model_dump_json()
         for page in [PageData(
             metadata={
-                "Commune": "Crans-Montana",
-                "Parcel": "3945",
-                "Object": "Construction d'une villa - Chermignon"
+                "Commune": "EN-VS",
+                "Object": "Justificatif"
             },
             checkboxes=[
                 Checkbox(label="Nouveau bâtiment", checked=True),
@@ -631,6 +629,174 @@ def _(test_image):
 @app.cell
 def _(infer_numd, test_image):
     infer_numd(test_image)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""### Preprocessing documents""")
+    return
+
+
+@app.cell
+def _():
+    import PIL
+    return (PIL,)
+
+
+@app.cell
+def _(Image):
+    example_mask = Image.open("./mask/example_mask.png")
+    example_mask
+    return (example_mask,)
+
+
+@app.cell
+def _(PIL):
+    def diff_images(img1, img2):
+        # Open images
+        img1 = img1.convert("RGB")
+        img2 = img2.convert("RGB")
+
+        common_size = img1.size
+        img2_resized = img2.resize(common_size)
+
+        # Compute absolute difference
+        diff = PIL.ImageChops.difference(img1, img2_resized)
+        return diff
+    return (diff_images,)
+
+
+@app.cell
+def _(PIL, diff_images, example_mask, test_image):
+    PIL.ImageChops.invert(diff_images(test_image, example_mask))
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""Simulating an already masked image""")
+    return
+
+
+@app.cell
+def _(Image):
+    masked_image = Image.open("./examples/masked_image.png")
+    masked_image
+    return (masked_image,)
+
+
+@app.cell
+def _(infer_image_quantized, masked_image):
+    infer_image_quantized(masked_image)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""après ~1m. d'inférence, avec Qwen3:7b-AQW""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(masked_image):
+    ([
+        {
+            "metadata": {},
+            "checkboxes": [
+                {"label": "Annexe", "checked": True},
+                {"label": "EN-VS-101a", "checked": True},
+                {"label": "EN-VS-101b", "checked": False},
+                {"label": "EN-VS-101c", "checked": False},
+                {"label": "EN-VS-102a", "checked": True},
+                {"label": "EN-VS-102b", "checked": False},
+                {"label": "EN-VS-103", "checked": True},
+                {"label": "EN-VS-120", "checked": False},
+                {"label": "EN-VS-104", "checked": True},
+                {"label": "EN-VS-105", "checked": False},
+                {"label": "EN-VS-110", "checked": True},
+                {"label": "EN-VS-111", "checked": False},
+                {"label": "EN-VS-112", "checked": False},
+                {"label": "EN-VS-130", "checked": False},
+                {"label": "EN-VS-131", "checked": False},
+                {"label": "EN-VS-132", "checked": False},
+                {"label": "EN-VS-133", "checked": False},
+                {"label": "EN-VS-134", "checked": False},
+                {"label": "EN-VS-135", "checked": False}
+            ],
+            "tables": []
+        }
+    ], masked_image)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""avec modèle OCR (plus petit)""")
+    return
+
+
+@app.cell
+def _():
+    from transformers import pipeline
+    from dotenv import load_dotenv
+    import os
+    return load_dotenv, os, pipeline
+
+
+@app.cell
+def _(load_dotenv, pipeline, torch):
+    load_dotenv()
+
+    pipe = pipeline(
+        "image-text-to-text",
+        model="google/gemma-3-4b-it",
+        device="cuda",
+        torch_dtype=torch.bfloat16
+    )
+    return (pipe,)
+
+
+@app.cell
+def _(BytesIO, Image, base64, pipe, system_prompt):
+    def infer_ocr_gemma(image: Image):
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        buffer.seek(0)
+        base64_image = base64.b64encode(buffer.read()).decode('utf-8')
+        base64_image = f"data:image/png;base64,{base64_image}"
+
+        messages = [
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "image": "https://i.imgur.com/WXKeer3.png",
+                    },
+                    {"type": "text", "text": "Fill in the values from this image."},
+                ],
+            }
+        ]
+    
+        output = pipe(text=messages, max_new_tokens=2048)
+        print(output[0]["generated_text"][-1]["content"])
+    return (infer_ocr_gemma,)
+
+
+@app.cell
+def _(system_prompt):
+    system_prompt
+    return
+
+
+@app.cell
+def _(infer_ocr_gemma, test_image):
+    infer_ocr_gemma(test_image)
     return
 
 
