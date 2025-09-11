@@ -129,8 +129,8 @@ def _(Checkbox, PageData, Table, TableRow):
         page.model_dump_json()
         for page in [PageData(
             metadata={
-                "Commune": "EN-VS",
-                "Object": "Justificatif"
+                "Title": "EN-VS",
+                "Object": "Justificatif des mesures énergétiques"
             },
             checkboxes=[
                 Checkbox(label="Nouveau bâtiment", checked=True),
@@ -149,9 +149,8 @@ def _(Checkbox, PageData, Table, TableRow):
         ),
             PageData(
         metadata={
-            "Commune": "Sierre",
-            "Parcel": "8812",
-            "Object": "Transformation d’un immeuble résidentiel"
+            "Title": "EN-VS-101a",
+            "Object": "Couverture des besoins de chaleur"
         },
         checkboxes=[
             Checkbox(label="Transformation", checked=True),
@@ -171,9 +170,8 @@ def _(Checkbox, PageData, Table, TableRow):
     ),
         PageData(
         metadata={
-            "Commune": "Monthey",
-            "Parcel": "1203",
-            "Object": "Agrandissement d’une école"
+            "Title": "EN-VS-102a",
+            "Object": "Performance thermique Performances ponctuelles"
         },
         checkboxes=[
             Checkbox(label="Agrandissement", checked=True),
@@ -356,11 +354,11 @@ def _(torch):
 
 @app.cell
 def _(AutoProcessor, Qwen2_5_VLForConditionalGeneration, torch):
-    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+    model_awq = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         "Qwen/Qwen2.5-VL-7B-Instruct-AWQ", dtype=torch.float16, device_map="auto"
     )
-    processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct-AWQ", min_pixels=256 * 28 * 28, max_pixels=1280 * 28 * 28)
-    return model, processor
+    processor_awq = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct-AWQ", min_pixels=256 * 28 * 28, max_pixels=1280 * 28 * 28)
+    return model_awq, processor_awq
 
 
 @app.cell
@@ -368,9 +366,9 @@ def _(
     BytesIO,
     Image,
     base64,
-    model,
+    model_awq,
     process_vision_info,
-    processor,
+    processor_awq,
     system_prompt,
 ):
     def infer_image_quantized(image: Image):
@@ -397,11 +395,11 @@ def _(
             }
         ]
 
-        text = processor.apply_chat_template(
+        text = processor_awq.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
         image_inputs, video_inputs = process_vision_info(messages)
-        inputs = processor(
+        inputs = processor_awq(
             text=[text],
             images=image_inputs,
             videos=video_inputs,
@@ -410,11 +408,11 @@ def _(
         )
         inputs = inputs.to("cuda")
 
-        generated_ids = model.generate(**inputs, max_new_tokens=2048)
+        generated_ids = model_awq.generate(**inputs, max_new_tokens=2048)
         generated_ids_trimmed = [
             out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
         ]
-        output = processor.batch_decode(
+        output = processor_awq.batch_decode(
             generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )
         return output
@@ -574,13 +572,13 @@ def _(test_image):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""numind/NuMarkdown-8B-Thinking""")
+    mo.md(r"""numind/NuExtract-2.0-8B-GPTQ (quantized finetuned Qwen2.5-VL:7b)""")
     return
 
 
 @app.cell
-def _(AutoProcessor, Qwen2_5_VLForConditionalGeneration, torch):
-    model_id = "numind/NuMarkdown-8B-reasoning"       
+def _(AutoProcessor, Qwen2_5_VLForConditionalGeneration, model_id, torch):
+    model_name = "numind/NuExtract-2.0-8B-GPTQ"
 
     processor = AutoProcessor.from_pretrained(
         model_id,
@@ -694,7 +692,7 @@ def _(infer_image_quantized, masked_image):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""après ~1m. d'inférence, avec Qwen3:7b-AQW""")
+    mo.md(r"""après ~1m. d'inférence, avec Qwen2.5-VL:7b-AQW, toutes les coches sont reportées sauf pour le doc. EN-VS-104""")
     return
 
 
@@ -702,7 +700,10 @@ def _(mo):
 def _(masked_image):
     ([
         {
-            "metadata": {},
+            "metadata": {
+                "Title": "EN-VS",
+                "Object": "Justificatif des mesures énergétiques"
+            },
             "checkboxes": [
                 {"label": "Annexe", "checked": True},
                 {"label": "EN-VS-101a", "checked": True},
@@ -712,7 +713,7 @@ def _(masked_image):
                 {"label": "EN-VS-102b", "checked": False},
                 {"label": "EN-VS-103", "checked": True},
                 {"label": "EN-VS-120", "checked": False},
-                {"label": "EN-VS-104", "checked": True},
+                {"label": "EN-VS-104", "checked": False},
                 {"label": "EN-VS-105", "checked": False},
                 {"label": "EN-VS-110", "checked": True},
                 {"label": "EN-VS-111", "checked": False},
@@ -730,73 +731,298 @@ def _(masked_image):
     return
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(mo):
-    mo.md(r"""avec modèle OCR (plus petit)""")
+    mo.md(r"""avec modèle OCR (plus petit), gemma fonctionne pas..""")
     return
 
 
 @app.cell
 def _():
-    from transformers import pipeline
+    from transformers import Gemma3ForConditionalGeneration
     from dotenv import load_dotenv
     import os
-    return load_dotenv, os, pipeline
+    return Gemma3ForConditionalGeneration, load_dotenv, os
 
 
 @app.cell
-def _(load_dotenv, pipeline, torch):
+def _(AutoProcessor, Gemma3ForConditionalGeneration, load_dotenv):
     load_dotenv()
 
-    pipe = pipeline(
-        "image-text-to-text",
-        model="google/gemma-3-4b-it",
-        device="cuda",
-        torch_dtype=torch.bfloat16
-    )
-    return (pipe,)
+    gemma_model = Gemma3ForConditionalGeneration.from_pretrained(
+        "google/gemma-3-4b-it", device_map="auto"
+    ).eval()
+    gemma_processor = AutoProcessor.from_pretrained("google/gemma-3-4b-it")
+    return gemma_model, gemma_processor
 
 
 @app.cell
-def _(BytesIO, Image, base64, pipe, system_prompt):
-    def infer_ocr_gemma(image: Image):
-        buffer = BytesIO()
-        image.save(buffer, format="PNG")
-        buffer.seek(0)
-        base64_image = base64.b64encode(buffer.read()).decode('utf-8')
-        base64_image = f"data:image/png;base64,{base64_image}"
+def _(gemma_model, gemma_processor, processor, torch):
+    def infer_ocr_gemma():
+        #buffer = BytesIO()
+        #image.save(buffer, format="PNG")
+        #buffer.seek(0)
+        #base64_image = base64.b64encode(buffer.read()).decode('utf-8')
+        #base64_image = f"data:image/png;base64,{base64_image}"
 
         messages = [
             {
                 "role": "system",
-                "content": system_prompt
+                "content": [{"type": "text", "text": "You are a helpful assistant."}]
             },
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "image",
-                        "image": "https://i.imgur.com/WXKeer3.png",
-                    },
-                    {"type": "text", "text": "Fill in the values from this image."},
-                ],
+                    {"type": "image", "image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/bee.jpg"},
+                    {"type": "text", "text": "Describe this image in detail."}
+                ]
             }
         ]
-    
-        output = pipe(text=messages, max_new_tokens=2048)
-        print(output[0]["generated_text"][-1]["content"])
+
+        inputs = gemma_processor.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=True,
+            return_dict=True, return_tensors="pt"
+        ).to(gemma_model.device, dtype=torch.bfloat16)
+
+        input_len = inputs["input_ids"].shape[-1]
+
+        with torch.inference_mode():
+            generation = gemma_model.generate(**inputs, max_new_tokens=100, do_sample=False)
+            generation = generation[0][input_len:]
+
+        decoded = processor.decode(generation, skip_special_tokens=True)
+        return decoded
     return (infer_ocr_gemma,)
+
+
+@app.cell
+def _(infer_ocr_gemma):
+    infer_ocr_gemma()
+    return
+
+
+@app.cell
+def _(Image):
+    masked_table = Image.open("./examples/masked_table.png")
+    masked_table
+    return (masked_table,)
+
+
+@app.cell
+def _(infer_image_quantized, masked_table):
+    infer_image_quantized(masked_table)
+    return
+
+
+@app.cell(hide_code=True)
+def _(masked_table):
+    ([
+        {
+            "metadata": {
+                "Title": "EN-VS-101a",
+                "Object": "Couverture des besoins de chaleur"
+            },
+            "checkboxes": [
+                {"label": "Habitat collectif", "checked": False},
+                {"label": "Habitat individuel", "checked": True},
+                {"label": "autre", "checked": False}
+            ],
+            "tables": [
+                {
+                    "title": "Exigences",
+                    "rows": [
+                        {
+                            "label": "Eléments de construction opaques contre l'extérieur",
+                            "values": ["0,17", "W/m²K"]
+                        },
+                        {
+                            "label": "Fenêtres",
+                            "values": ["Uw max. 1,00", "W/m²K"]
+                        },
+                        {
+                            "label": "Ventilation contrôlée",
+                            "values": ["≥ 80%", "rendement RC"]
+                        },
+                        {
+                            "label": "Installation solaire th.",
+                            "values": [
+                                "pour l'eau chaude sanitaire avec surface d'eau min. 2% de la SRE",
+                                "min. 4 m² projeté"
+                            ]
+                        },
+                        {
+                            "label": "Installation solaire th.",
+                            "values": [
+                                "pour l'eau chaude sanitaire avec surface d'eau min. 2% de la SRE",
+                                "min. 6 m² projeté"
+                            ]
+                        },
+                        {
+                            "label": "Eléments de construction opaques contre l'extérieur",
+                            "values": ["0,15", "W/m²K"]
+                        },
+                        {
+                            "label": "Fenêtres",
+                            "values": ["Uw max. 1,00", "W/m²K"]
+                        },
+                        {
+                            "label": "Eléments de construction opaques contre l'extérieur",
+                            "values": ["0,15", "W/m²K"]
+                        },
+                        {
+                            "label": "Fenêtres",
+                            "values": ["Uw max. 0,80", "W/m²K"]
+                        }
+                    ]
+                }
+            ]
+        }
+    ], masked_table)
+    return
+
+
+@app.cell
+def _(Image, infer_image_quantized):
+    masked_table_bis = Image.open("./examples/masked_table_bis.png")
+    infer_image_quantized(masked_table_bis)
+    return (masked_table_bis,)
+
+
+@app.cell(hide_code=True)
+def _(masked_table_bis):
+    ([
+        {
+            "metadata": {
+                "Title": "EN-VS-102a",
+                "Object": "Performance thermique Performances ponctuelles"
+            },
+            "checkboxes": [
+                {"label": "Agrandissement", "checked": True},
+                {"label": "Transformation", "checked": False},
+                {"label": "Changement d'affectation", "checked": False}
+            ],
+            "tables": [
+                {
+                    "title": "Protection thermique en été",
+                    "rows": [
+                        {"label": "Valeur g", "values": ["oui", "non", "non"]},
+                        {"label": "Rafrichissement", "values": ["non", "oui", "non"]}
+                    ]
+                },
+                {
+                    "title": "Éléments d'enveloppe et exigences",
+                    "rows": [
+                        {"label": "Toit/plafond", "values": ["tt1", "20.00", "0.16", "0.17", "20.00", "0.17", "0.25"]},
+                        {"label": "Mur", "values": ["me1", "20.00", "0.15", "0.17", "mt1", "20.00", "0.17", "0.25"]},
+                        {"label": "Mur", "values": ["me2", "26.00", "0.16", "0.17", "mi1", "20.00", "0.15", "0.25"]},
+                        {"label": "Mur", "values": ["", "", "0.17", "", "", "", "0.25"]},
+                        {"label": "Mur", "values": ["", "", "0.17", "", "", "", "0.25"]},
+                        {"label": "Sol", "values": ["d1", "31.00", "0.17", "0.17", "", "", "", "0.25"]},
+                        {"label": "Portes", "values": ["", "", "", "", "", "", "1.70", "2.00"]},
+                        {"label": "Caisson de store", "values": ["cs1", "6.00", "0.45", "0.50", "", "", "", "0.50"]},
+                        {"label": "Fenêtre, porte-fenêtre, Velux", "values": ["f1", "0.60", "0.93", "Uw max. 1.00", "", "", "", "Uw max. 1.30"]},
+                        {"label": "Fenêtre, porte-fenêtre, Velux", "values": ["", "", "", "Uw max. 1.00", "", "", "", "Uw max. 1.30"]},
+                        {"label": "Porte", "values": ["", "", "", "", "", "", "1.20", "1.50"]},
+                        {"label": "Fenêtre avec corps de chauffe", "values": ["", "", "", "Uw max. 1.00", "", "", "", "Uw max. 1.30"]}
+                    ]
+                }
+            ]
+        }
+    ], masked_table_bis)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    Tesseract OCR
+
+    ![Tesseract](https://i.imgur.com/Ft1ETx1.png)
+    """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    NuMarkdown-8B-Thinking
+
+    EN-VS-102a | Justificatif énergétique
+    -----------|---------------------------
+    | Protection thermique
+    | Performances ponctuelles
+
+    Nature des travaux :
+    [ ] Nouveau bâtiment
+    [ ] Transformation
+    [ ] Agrandissement
+    [ ] Changement d'affectation
+
+    ---
+
+    **Hygiène de l'air intérieur**
+
+    Concept de
+    ventilation:
+    * Système de ventilation avec air fourni et air repris
+    * Installation simple d'air repris avec entrées d'air neuf définies
+    * Aération par fenêtres avec commande automatique
+    * Aération par ouverture manuelle des fenêtres
+    * Autre:
+
+    ---
+
+    **Protection thermique en été**
+
+    Valeur g
+    * Protection solaire extérieure
+    * Justificatif de la valeur g du vitrage et de la protection solaire
+    * Valeur g non respectée ;
+    motif: Choisir s.v.p. :
+
+    Rafraîchissement
+    * Non, ni "nécessaire" ni "souhaitable"
+    * Oui [ ] Commande automatique des protections solaires
+    [ ] Pas automatique ;
+    motif: freecooling
+
+    ---
+
+    **Eléments d'enveloppe et exigences** NEUF (bâtiment à construire ou agrandissement)
+    Il = habitat individuel
+    Neuf - Norme SIA 380/1;2016 ou solution standard 1 ou 2
+    rendement de récup ventil mini 80% requis pour sol.std. 1 / part énergie fossile max 25%
+
+    | Elément | Epaisseur de l'isolant en cm | N° (2) | épaisseur cm | Valeur U W/m²K | Valeur limite W/m²K | N° (2) | épaisseur cm | Valeur U W/m²K | Valeur limite W/m²K |
+    |---|---|---|---|---|---|---|---|---|---|
+    | Toit/plafond | tt1 | 20.00 | 0.16 | 0.17 | | | | 0.25 |
+    | Toit/plafond | | | | | | | | 0.25 |
+    | Mur | me1 | 20.00 | 0.15 | 0.17 | mt1 | 20.00 | 0.17 | 0.25 |
+    | Mur | me2 | 26.00 | 0.16 | 0.17 | mi1 | 20.00 | 0.15 | 0.25 |
+    | Mur | | | | | | | | 0.25 |
+    | Mur | | | | | | | | 0.25 |
+    | Sol | d1 | 31.00 | 0.17 | 0.17 | | | | 0.25 |
+    | Sol | | | | | | | | 0.25 |
+    | Portes (SIA 343) | | | | 1.70 | | | | 2.00 |
+    | Caisson de store | cs1 | 6.00 | 0.45 | 0.50 | | | | 0.50 |
+    | | N° (2) | Uvitrage W/m²K | Ufenêtre W/m²K | Valeur limite W/m²K | N° (2) | Uvitrage W/m²K | Ufenêtre W/m²K | Valeur limite W/m²K |
+    | Fenêtre, porte-fenêtre, Velux | f1 | 0.60 | 0.93 | Uw max. 1.00 | | | | Uw max. 1.30 |
+    | Fenêtre, porte-fenêtre, Velux | | | | Uw max. 1.00 | | | | Uw max. 1.30 |
+    | Porte | | | | 1.20 | | | | 1.50 |
+    | Fenêtre avec corps de chauffe (3) | | | | Uw max. 1.00 | | | | Uw max. 1.30 |
+
+    ---
+    """
+    )
+    return
 
 
 @app.cell
 def _(system_prompt):
     system_prompt
-    return
-
-
-@app.cell
-def _(infer_ocr_gemma, test_image):
-    infer_ocr_gemma(test_image)
     return
 
 
